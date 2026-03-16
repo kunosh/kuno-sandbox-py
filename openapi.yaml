@@ -1,0 +1,1110 @@
+openapi: 3.1.0
+info:
+  title: Kuno Sandbox API
+  description: HTTP API for creating, managing, and executing commands in MicroVM sandboxes.
+  version: 0.1.0
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      operationId: healthz
+      security: []
+      tags: [Health]
+      responses:
+        "200":
+          description: Server is alive
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      operationId: readyz
+      security: []
+      tags: [Health]
+      responses:
+        "200":
+          description: Server is ready to serve traffic
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      operationId: metrics
+      security: []
+      tags: [Health]
+      responses:
+        "200":
+          description: Prometheus text format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/sandboxes:
+    post:
+      summary: Create a sandbox
+      description: Creates and boots a new MicroVM sandbox from an OCI image.
+      operationId: createSandbox
+      tags: [Sandboxes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSandboxRequest"
+            examples:
+              minimal:
+                summary: Minimal
+                value:
+                  image: "alpine:latest"
+              full:
+                summary: Full options
+                value:
+                  image: "python:3.12-slim"
+                  name: "my-sandbox"
+                  cpus: 2
+                  memory_mb: 512
+                  env:
+                    PYTHONPATH: /app
+                  workdir: /app
+      responses:
+        "201":
+          description: Sandbox created and booted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxInfo"
+        "400":
+          description: Invalid configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: Boot failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+    get:
+      summary: List sandboxes
+      operationId: listSandboxes
+      tags: [Sandboxes]
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [Created, Ready, Busy, Compacting, Stopped]
+      responses:
+        "200":
+          description: List of sandboxes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SandboxInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/sandboxes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SandboxId"
+
+    get:
+      summary: Inspect a sandbox
+      operationId: getSandbox
+      tags: [Sandboxes]
+      responses:
+        "200":
+          description: Sandbox details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SandboxInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      summary: Destroy a sandbox
+      description: Stops the VM and removes the sandbox.
+      operationId: deleteSandbox
+      tags: [Sandboxes]
+      responses:
+        "204":
+          description: Sandbox stopped and removed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          description: Failed to stop sandbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/sandboxes/{id}/exec:
+    parameters:
+      - $ref: "#/components/parameters/SandboxId"
+    post:
+      summary: Execute a command
+      description: Runs a command inside the sandbox and returns the full output.
+      operationId: execCommand
+      tags: [Execution]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecRequest"
+            examples:
+              simple:
+                summary: Simple command
+                value:
+                  cmd: echo
+                  args: ["hello", "world"]
+              with_env:
+                summary: With environment
+                value:
+                  cmd: python3
+                  args: ["-c", "import os; print(os.environ['MY_VAR'])"]
+                  env: ["MY_VAR=test"]
+                  working_dir: /app
+      responses:
+        "200":
+          description: Command completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          description: Execution failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/sandboxes/{id}/exec/stream:
+    parameters:
+      - $ref: "#/components/parameters/SandboxId"
+    post:
+      summary: Execute with streaming output
+      description: |
+        Runs a command and streams output as Server-Sent Events (SSE).
+
+        Each event contains a JSON object with either:
+        - `{"type": "chunk", "stream": "Stdout"|"Stderr", "data": "..."}`
+        - `{"type": "exit", "exit_code": 0}`
+      operationId: execStream
+      tags: [Execution]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecRequest"
+      responses:
+        "200":
+          description: SSE stream of output chunks
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/sandboxes/{id}/upload:
+    parameters:
+      - $ref: "#/components/parameters/SandboxId"
+    post:
+      summary: Upload a file
+      description: Uploads a file into the sandbox at the specified guest path.
+      operationId: uploadFile
+      tags: [Files]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadRequest"
+            example:
+              guest_path: /tmp/script.sh
+              data: IyEvYmluL3NoCmVjaG8gaGVsbG8=
+      responses:
+        "200":
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileResponse"
+        "400":
+          description: Invalid base64 data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/sandboxes/{id}/download:
+    parameters:
+      - $ref: "#/components/parameters/SandboxId"
+    get:
+      summary: Download a file
+      description: Downloads a file from the sandbox as base64-encoded data.
+      operationId: downloadFile
+      tags: [Files]
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: Path inside the sandbox to download
+          schema:
+            type: string
+          example: /etc/hostname
+      responses:
+        "200":
+          description: File contents (base64)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          description: Download failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/sandboxes/{id}/pause:
+    parameters:
+      - $ref: "#/components/parameters/SandboxId"
+    post:
+      summary: Pause a sandbox
+      description: Freezes all processes in the sandbox VM (SIGSTOP).
+      operationId: pauseSandbox
+      tags: [Lifecycle]
+      responses:
+        "204":
+          description: Sandbox paused
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          description: Pause failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/sandboxes/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/SandboxId"
+    post:
+      summary: Resume a sandbox
+      description: Resumes a previously paused sandbox (SIGCONT).
+      operationId: resumeSandbox
+      tags: [Lifecycle]
+      responses:
+        "204":
+          description: Sandbox resumed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          description: Resume failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/events:
+    get:
+      summary: Sandbox event stream
+      description: |
+        Server-Sent Events stream of sandbox lifecycle events.
+        Events include `sandbox.ready`, `sandbox.error`, `sandbox.timeout`,
+        `pool.vm.created`, `exec.command.started`, etc.
+
+        Each SSE event has:
+        - `event:` the event key (e.g., `sandbox.ready`)
+        - `data:` JSON-encoded SandboxEvent
+      operationId: eventStream
+      tags: [Streaming]
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/sandboxes/{id}/pty:
+    parameters:
+      - $ref: "#/components/parameters/SandboxId"
+    get:
+      summary: WebSocket PTY
+      description: |
+        Upgrades to a WebSocket connection for interactive terminal access.
+
+        - Binary frames: terminal I/O data
+        - Text frames: JSON resize events `{"cols": 120, "rows": 40}`
+      operationId: ptyWebsocket
+      tags: [Streaming]
+      responses:
+        "101":
+          description: WebSocket upgrade
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/pool/status:
+    get:
+      summary: Warm pool status
+      operationId: poolStatus
+      tags: [Pool]
+      responses:
+        "200":
+          description: Pool status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PoolStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agents/sessions:
+    post:
+      summary: Create an agent session
+      description: |
+        Boots a sandbox, runs adapter setup for the chosen agent, and returns
+        the session metadata. The session starts in `idle` state once ready.
+      operationId: createAgentSession
+      tags: [Agent Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+            examples:
+              minimal:
+                summary: Minimal
+                value:
+                  agent: claude-code
+              full:
+                summary: Full options
+                value:
+                  agent: claude-code
+                  label: my-coding-session
+                  image: "node:22-slim"
+                  cpus: 2
+                  memory_mb: 4096
+                  env:
+                    ANTHROPIC_API_KEY: sk-ant-...
+                  agent_config:
+                    model: claude-sonnet-4-20250514
+                    extra_args: ["--verbose"]
+      responses:
+        "201":
+          description: Agent session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionInfo"
+        "400":
+          description: Unsupported agent or invalid configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          description: Sandbox boot or adapter setup failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+    get:
+      summary: List agent sessions
+      operationId: listAgentSessions
+      tags: [Agent Sessions]
+      responses:
+        "200":
+          description: List of agent sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agents/sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+
+    get:
+      summary: Inspect an agent session
+      operationId: getAgentSession
+      tags: [Agent Sessions]
+      responses:
+        "200":
+          description: Agent session details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/SessionNotFound"
+
+    delete:
+      summary: Destroy an agent session
+      description: Tears down the agent adapter, stops the sandbox, and removes the session.
+      operationId: deleteAgentSession
+      tags: [Agent Sessions]
+      responses:
+        "204":
+          description: Session destroyed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/SessionNotFound"
+        "410":
+          description: Session already destroyed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Failed to stop sandbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/agents/sessions/{id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      summary: Send a message to an agent
+      description: |
+        Sends a user message to the agent running in the session and streams
+        back events via Server-Sent Events (SSE).
+
+        Each SSE event has:
+        - `event:` the event kind (e.g., `text`, `tool_use`, `turn_complete`)
+        - `data:` JSON-encoded UniversalEvent
+
+        The session must be in `idle` state. It transitions to `processing`
+        for the duration of the turn, then back to `idle`.
+      operationId: sendAgentMessage
+      tags: [Agent Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+            example:
+              message: "Create a hello world HTTP server in Python"
+      responses:
+        "200":
+          description: SSE stream of agent events
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/UniversalEvent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/SessionNotFound"
+        "409":
+          description: Session is not in idle state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "410":
+          description: Session already destroyed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/agents/sessions/{id}/events:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      summary: Subscribe to session events
+      description: |
+        Persistent SSE stream that receives all events for a session across
+        multiple `sendAgentMessage` calls. The connection stays open until
+        the client disconnects or the session is destroyed.
+
+        Each SSE event has:
+        - `event:` the event kind (e.g., `text`, `tool_use`, `turn_complete`)
+        - `data:` JSON-encoded UniversalEvent
+      operationId: sessionEvents
+      tags: [Agent Sessions]
+      responses:
+        "200":
+          description: SSE stream of agent events
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/UniversalEvent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/SessionNotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Set via `KUNO_AUTH_TOKEN` env var. If unset, auth is disabled (dev mode).
+
+  parameters:
+    SandboxId:
+      name: id
+      in: path
+      required: true
+      description: Sandbox UUID
+      schema:
+        type: string
+        format: uuid
+
+    SessionId:
+      name: id
+      in: path
+      required: true
+      description: Agent session UUID
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+    NotFound:
+      description: Sandbox not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+
+    SessionNotFound:
+      description: Agent session not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+
+    TooManyRequests:
+      description: Session limit reached (total or per-agent)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+
+  schemas:
+    CreateSandboxRequest:
+      type: object
+      required: [image]
+      properties:
+        image:
+          type: string
+          description: OCI image reference
+          example: alpine:latest
+        name:
+          type: string
+          description: Human-readable name (auto-generated if omitted)
+          example: my-sandbox
+        cpus:
+          type: integer
+          default: 1
+          minimum: 1
+          description: Number of vCPUs
+        memory_mb:
+          type: integer
+          default: 256
+          minimum: 64
+          description: Memory in megabytes
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          description: Environment variables
+          example:
+            PATH: /usr/local/bin:/usr/bin
+        workdir:
+          type: string
+          description: Working directory inside the sandbox
+          example: /app
+
+    SandboxInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          example: my-sandbox
+        state:
+          type: string
+          enum: [Created, Ready, Busy, Compacting, Stopped]
+          example: Ready
+
+    ExecRequest:
+      type: object
+      required: [cmd]
+      properties:
+        cmd:
+          type: string
+          description: Command to execute
+          example: ls
+        args:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Command arguments
+          example: ["-la", "/tmp"]
+        env:
+          type: array
+          items:
+            type: string
+          default: []
+          description: "Environment variables as KEY=VALUE strings"
+        working_dir:
+          type: string
+          description: Working directory for the command
+
+    ExecResponse:
+      type: object
+      properties:
+        stdout:
+          type: string
+          description: Standard output (UTF-8)
+        stderr:
+          type: string
+          description: Standard error (UTF-8)
+        exit_code:
+          type: integer
+          description: Process exit code (0 = success)
+          example: 0
+        duration_ms:
+          type: integer
+          description: Execution duration in milliseconds
+          example: 42
+
+    UploadRequest:
+      type: object
+      required: [guest_path, data]
+      properties:
+        guest_path:
+          type: string
+          description: Destination path inside the sandbox
+          example: /tmp/script.sh
+        data:
+          type: string
+          format: byte
+          description: Base64-encoded file contents
+
+    FileResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        error:
+          type: string
+
+    DownloadResponse:
+      type: object
+      properties:
+        data:
+          type: string
+          format: byte
+          description: Base64-encoded file contents
+
+    PoolStatus:
+      type: object
+      properties:
+        available:
+          type: boolean
+          description: Whether the warm pool is configured
+        message:
+          type: string
+
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        hint:
+          type: string
+          description: Optional hint for resolving the error
+
+    AgentKind:
+      type: string
+      enum:
+        - claude-code
+        - codex
+        - open-code
+        - aider
+        - goose
+      description: Supported agent types
+
+    AgentConfig:
+      type: object
+      description: Per-session agent configuration
+      properties:
+        model:
+          type: string
+          description: Model override (e.g., "claude-sonnet-4-20250514")
+          example: claude-sonnet-4-20250514
+        extra_args:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Extra CLI arguments passed to the agent command
+        extra:
+          type: object
+          additionalProperties: true
+          default: {}
+          description: Opaque key-value bag for agent-specific options
+
+    CreateSessionRequest:
+      type: object
+      required: [agent]
+      properties:
+        agent:
+          $ref: "#/components/schemas/AgentKind"
+        label:
+          type: string
+          description: Human-readable label for the session
+          example: my-coding-session
+        image:
+          type: string
+          description: OCI image override (adapter default if omitted)
+          example: "node:22-slim"
+        cpus:
+          type: integer
+          minimum: 1
+          description: Number of vCPUs (default chosen by adapter)
+          example: 2
+        memory_mb:
+          type: integer
+          minimum: 64
+          description: Memory in megabytes (default chosen by adapter)
+          example: 2048
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          default: {}
+          description: Environment variables injected into the sandbox
+        agent_config:
+          $ref: "#/components/schemas/AgentConfig"
+
+    SendMessageRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: User message to send to the agent
+          example: "Create a hello world HTTP server in Python"
+
+    SessionState:
+      type: string
+      enum:
+        - creating
+        - idle
+        - processing
+        - error
+        - destroyed
+      description: State of an agent session
+
+    SessionUsage:
+      type: object
+      description: Accumulated usage metrics for an agent session
+      properties:
+        total_input_tokens:
+          type: integer
+          format: int64
+          default: 0
+          description: Total input tokens consumed across all turns
+        total_output_tokens:
+          type: integer
+          format: int64
+          default: 0
+          description: Total output tokens consumed across all turns
+        turn_count:
+          type: integer
+          format: int32
+          default: 0
+          description: Number of completed turns
+
+    SessionInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        agent_kind:
+          $ref: "#/components/schemas/AgentKind"
+        label:
+          type: string
+          example: my-coding-session
+        state:
+          $ref: "#/components/schemas/SessionState"
+        created_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp
+        agent_session_id:
+          type: string
+          description: Agent's internal session/thread ID for multi-turn conversations
+        usage:
+          $ref: "#/components/schemas/SessionUsage"
+
+    FileOperation:
+      type: string
+      enum:
+        - create
+        - modify
+        - delete
+
+    UsageInfo:
+      type: object
+      description: Per-turn usage information
+      properties:
+        input_tokens:
+          type: integer
+          format: int64
+        output_tokens:
+          type: integer
+          format: int64
+
+    EventKind:
+      description: |
+        Discriminated union of all possible agent events.
+        The `type` field determines which additional properties are present.
+      oneOf:
+        - type: object
+          title: thinking
+          required: [type]
+          properties:
+            type:
+              type: string
+              const: thinking
+
+        - type: object
+          title: text
+          required: [type, content]
+          properties:
+            type:
+              type: string
+              const: text
+            content:
+              type: string
+              description: Text output from the agent
+            is_delta:
+              type: boolean
+              default: false
+              description: Whether this is a streaming delta or a complete message
+
+        - type: object
+          title: tool_use
+          required: [type, tool, input]
+          properties:
+            type:
+              type: string
+              const: tool_use
+            tool:
+              type: string
+              description: Tool name
+            input:
+              description: Tool input (JSON value)
+            tool_use_id:
+              type: string
+              description: Unique ID for correlating with tool_result
+
+        - type: object
+          title: tool_result
+          required: [type, tool_use_id, output, success]
+          properties:
+            type:
+              type: string
+              const: tool_result
+            tool_use_id:
+              type: string
+              description: ID of the corresponding tool_use event
+            output:
+              type: string
+              description: Tool output text
+            success:
+              type: boolean
+
+        - type: object
+          title: file_change
+          required: [type, path, operation]
+          properties:
+            type:
+              type: string
+              const: file_change
+            path:
+              type: string
+              description: File path that changed
+            diff:
+              type: string
+              description: Unified diff (if available)
+            operation:
+              $ref: "#/components/schemas/FileOperation"
+
+        - type: object
+          title: turn_complete
+          required: [type]
+          properties:
+            type:
+              type: string
+              const: turn_complete
+            stop_reason:
+              type: string
+              description: Why the agent stopped (e.g., "end_turn")
+            usage:
+              $ref: "#/components/schemas/UsageInfo"
+
+        - type: object
+          title: error
+          required: [type, message]
+          properties:
+            type:
+              type: string
+              const: error
+            message:
+              type: string
+              description: Error message
+            code:
+              type: string
+              description: Optional error code
+
+        - type: object
+          title: exit
+          required: [type, exit_code]
+          properties:
+            type:
+              type: string
+              const: exit
+            exit_code:
+              type: integer
+              description: Agent process exit code
+
+        - type: object
+          title: raw
+          required: [type, stream, content]
+          properties:
+            type:
+              type: string
+              const: raw
+            stream:
+              type: string
+              description: Output stream name (e.g., "stdout", "stderr")
+            content:
+              type: string
+              description: Unparsed output content
+      discriminator:
+        propertyName: type
+
+    UniversalEvent:
+      type: object
+      description: Universal event emitted by any agent adapter
+      required: [session_id, kind, timestamp]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: Agent session this event belongs to
+        kind:
+          $ref: "#/components/schemas/EventKind"
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of when the event was emitted
+
+tags:
+  - name: Health
+    description: Liveness, readiness, and metrics endpoints (no auth required)
+  - name: Sandboxes
+    description: Create, list, inspect, and destroy sandboxes
+  - name: Execution
+    description: Execute commands inside sandboxes
+  - name: Files
+    description: Upload and download files
+  - name: Lifecycle
+    description: Pause and resume sandboxes
+  - name: Streaming
+    description: SSE event streams and WebSocket PTY
+  - name: Pool
+    description: Warm pool management
+  - name: Agent Sessions
+    description: Create, manage, and interact with AI coding agent sessions
