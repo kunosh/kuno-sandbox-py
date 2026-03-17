@@ -19,12 +19,14 @@ from .errors import (
 from .models.agent_session import AgentSession
 from .models.sandbox import Sandbox
 from .resources.sandboxes import PRESET_IMAGES
+from .resources.snapshots import SnapshotResource
 from .sync import SyncAgentSession, SyncKunoClient, SyncSandbox
 from .types import (
     AgentConfig,
     AgentKind,
     CreateSandboxRequest,
     CreateSessionRequest,
+    CreateSnapshotRequest,
     DownloadResponse,
     ErrorEvent,
     EventKind,
@@ -37,13 +39,18 @@ from .types import (
     FileChangeEvent,
     FileOperation,
     FileResponse,
+    HibernateResponse,
     PoolStatus,
     RawEvent,
+    ReplOutputChunk,
+    ReplResponse,
+    ResumeResponse,
     SandboxInfo,
     SandboxState,
     SessionInfo,
     SessionState,
     SessionUsage,
+    SnapshotInfo,
     TextEvent,
     ThinkingEvent,
     ToolResultEvent,
@@ -62,6 +69,8 @@ __all__ = [
     "Sandbox",
     "SyncAgentSession",
     "SyncSandbox",
+    # Resources
+    "SnapshotResource",
     # Errors
     "ApiError",
     "AuthError",
@@ -87,16 +96,22 @@ __all__ = [
     "AgentConfig",
     "CreateSandboxRequest",
     "CreateSessionRequest",
+    "CreateSnapshotRequest",
     "DownloadResponse",
     "ExecOptions",
     "ExecResponse",
     "ExecStreamEvent",
     "EventKind",
     "FileResponse",
+    "HibernateResponse",
     "PoolStatus",
+    "ReplOutputChunk",
+    "ReplResponse",
+    "ResumeResponse",
     "SandboxInfo",
     "SessionInfo",
     "SessionUsage",
+    "SnapshotInfo",
     "UniversalEvent",
     "UsageInfo",
     # Event kinds

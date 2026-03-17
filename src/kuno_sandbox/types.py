@@ -131,6 +131,54 @@ class DownloadResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Snapshot types
+# ---------------------------------------------------------------------------
+
+
+class SnapshotInfo(BaseModel):
+    id: str
+    name: str
+    source_sandbox_id: str
+    image: str
+    size_bytes: int
+    created_at: str
+    description: str = ""
+
+
+class CreateSnapshotRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+class HibernateResponse(BaseModel):
+    session_id: str
+    snapshot_id: str
+    status: str
+
+
+class ResumeResponse(BaseModel):
+    session_id: str
+    snapshot_id: str
+    status: str
+
+
+# ---------------------------------------------------------------------------
+# REPL types
+# ---------------------------------------------------------------------------
+
+
+class ReplOutputChunk(BaseModel):
+    stream: str
+    text: str
+
+
+class ReplResponse(BaseModel):
+    output: list[ReplOutputChunk] = Field(default_factory=list)
+    exit_code: int = 0
+    duration_ms: int = 0
+
+
+# ---------------------------------------------------------------------------
 # Event kinds (discriminated union via "type" field)
 # ---------------------------------------------------------------------------
 

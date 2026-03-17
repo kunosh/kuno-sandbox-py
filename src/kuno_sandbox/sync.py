@@ -16,10 +16,14 @@ from .types import (
     AgentKind,
     ExecResponse,
     ExecStreamEvent,
+    HibernateResponse,
     PoolStatus,
+    ReplResponse,
+    ResumeResponse,
     SandboxInfo,
     SandboxState,
     SessionInfo,
+    SnapshotInfo,
     UniversalEvent,
 )
 
@@ -113,6 +117,25 @@ class SyncSandbox:
     def download(self, guest_path: str) -> bytes:
         return self._loop.run(self._sandbox.download(guest_path))
 
+    def snapshot(
+        self,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> SnapshotInfo:
+        return self._loop.run(self._sandbox.snapshot(name=name, description=description))
+
+    def repl(
+        self,
+        language: str,
+        code: str,
+        *,
+        timeout_secs: int = 0,
+    ) -> ReplResponse:
+        return self._loop.run(
+            self._sandbox.repl(language, code, timeout_secs=timeout_secs)
+        )
+
     def pause(self) -> None:
         self._loop.run(self._sandbox.pause())
 
@@ -169,6 +192,12 @@ class SyncAgentSession:
             self._session.subscribe_events()
         )
         return _sync_iter(self._loop, async_iter)
+
+    def hibernate(self) -> HibernateResponse:
+        return self._loop.run(self._session.hibernate())
+
+    def resume(self) -> ResumeResponse:
+        return self._loop.run(self._session.resume())
 
     def upload(self, guest_path: str, data: bytes | str) -> None:
         self._loop.run(self._session.upload(guest_path, data))
@@ -263,6 +292,29 @@ class _SyncSandboxResource:
         self._loop.run(self._resource.destroy(sandbox_id))
 
 
+class _SyncSnapshotResource:
+    """Synchronous wrapper for :class:`~kuno_sandbox.resources.snapshots.SnapshotResource`."""
+
+    def __init__(self, _resource: Any, _loop: _EventLoop) -> None:
+        from .resources.snapshots import SnapshotResource
+
+        self._resource: SnapshotResource = _resource
+        self._loop = _loop
+
+    def list(self) -> list[SnapshotInfo]:
+        return self._loop.run(self._resource.list())
+
+    def get(self, snapshot_id: str) -> SnapshotInfo:
+        return self._loop.run(self._resource.get(snapshot_id))
+
+    def restore(self, snapshot_id: str) -> SyncSandbox:
+        sb = self._loop.run(self._resource.restore(snapshot_id))
+        return SyncSandbox(sb, self._loop)
+
+    def delete(self, snapshot_id: str) -> None:
+        self._loop.run(self._resource.delete(snapshot_id))
+
+
 class _SyncAgentResource:
     """Synchronous wrapper for :class:`~kuno_sandbox.resources.agents.AgentResource`."""
 
@@ -335,6 +387,7 @@ class SyncKunoClient:
         self._client = KunoClient(base_url=base_url, token=token, timeout=timeout)
         self.sandboxes = _SyncSandboxResource(self._client.sandboxes, self._loop)
         self.agents = _SyncAgentResource(self._client.agents, self._loop)
+        self.snapshots = _SyncSnapshotResource(self._client.snapshots, self._loop)
 
     def health(self) -> str:
         return self._loop.run(self._client.health())

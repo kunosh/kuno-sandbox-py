@@ -10,6 +10,8 @@ from .._http import HttpClient
 from .._sse import iter_agent_sse
 from ..types import (
     DownloadResponse,
+    HibernateResponse,
+    ResumeResponse,
     SessionInfo,
     UniversalEvent,
 )
@@ -78,6 +80,20 @@ class AgentSession:
         )
         resp = DownloadResponse.model_validate(data)
         return base64.b64decode(resp.data)
+
+    async def hibernate(self) -> HibernateResponse:
+        """Hibernate this session, creating a snapshot of its state."""
+        data = await self._http.request(
+            "POST", f"/api/v1/agents/sessions/{self._id}/hibernate"
+        )
+        return HibernateResponse.model_validate(data)
+
+    async def resume(self) -> ResumeResponse:
+        """Resume a previously hibernated session."""
+        data = await self._http.request(
+            "POST", f"/api/v1/agents/sessions/{self._id}/resume"
+        )
+        return ResumeResponse.model_validate(data)
 
     async def inspect(self) -> AgentSession:
         data = await self._http.request(

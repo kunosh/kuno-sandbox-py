@@ -13,7 +13,9 @@ from ..types import (
     DownloadResponse,
     ExecResponse,
     ExecStreamEvent,
+    ReplResponse,
     SandboxInfo,
+    SnapshotInfo,
 )
 
 
@@ -102,6 +104,44 @@ class Sandbox:
         )
         resp = DownloadResponse.model_validate(data)
         return base64.b64decode(resp.data)
+
+    async def snapshot(
+        self,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> SnapshotInfo:
+        """Create a snapshot of this sandbox."""
+        body: dict[str, object] = {}
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        data = await self._http.request(
+            "POST", f"/api/v1/sandboxes/{self._id}/snapshot", json=body
+        )
+        return SnapshotInfo.model_validate(data)
+
+    async def repl(
+        self,
+        language: str,
+        code: str,
+        *,
+        timeout_secs: int = 0,
+    ) -> ReplResponse:
+        """Execute code in a REPL environment.
+
+        Args:
+            language: The REPL language ("python" or "nodejs").
+            code: The code to execute.
+            timeout_secs: Optional execution timeout in seconds (0 = no timeout).
+        """
+        data = await self._http.request(
+            "POST",
+            f"/api/v1/sandboxes/{self._id}/repl",
+            json={"language": language, "code": code, "timeout_secs": timeout_secs},
+        )
+        return ReplResponse.model_validate(data)
 
     async def pause(self) -> None:
         await self._http.request_void(

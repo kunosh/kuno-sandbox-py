@@ -9,6 +9,7 @@ from ._http import HttpClient
 from .resources.agents import AgentResource
 from .resources.health import HealthResource
 from .resources.sandboxes import SandboxResource
+from .resources.snapshots import SnapshotResource
 from .types import PoolStatus
 
 
@@ -35,6 +36,7 @@ class KunoClient:
 
         self.sandboxes = SandboxResource(self._http)
         self.agents = AgentResource(self._http)
+        self.snapshots = SnapshotResource(self._http)
 
     async def health(self) -> str:
         """Liveness probe. Returns 'ok'."""
