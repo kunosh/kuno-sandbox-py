@@ -8,6 +8,7 @@ from types import TracebackType
 
 from .._http import HttpClient
 from .._sse import iter_exec_sse
+from ..errors import ExecError
 from ..types import (
     DownloadResponse,
     ExecResponse,
@@ -65,6 +66,21 @@ class Sandbox:
             "POST", f"/api/v1/sandboxes/{self._id}/exec/stream", json=body
         )
         return iter_exec_sse(response)
+
+    async def run(self, code: str, *, interpreter: str = "sh") -> str:
+        """Execute *code* via the given interpreter and return stdout.
+
+        Raises :class:`~kuno_sandbox.errors.ExecError` when the command exits
+        with a non-zero exit code.
+        """
+        result = await self.exec(interpreter, args=["-c", code])
+        if result.exit_code != 0:
+            raise ExecError(
+                exit_code=result.exit_code,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+        return result.stdout
 
     async def upload(self, guest_path: str, data: bytes | str) -> None:
         if isinstance(data, str):

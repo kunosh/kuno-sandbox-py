@@ -86,6 +86,23 @@ class StreamError(KunoError):
     """SSE streaming error."""
 
 
+class ExecError(KunoError):
+    """Command execution returned a non-zero exit code."""
+
+    exit_code: int
+    stdout: str
+    stderr: str
+
+    def __init__(self, exit_code: int, stdout: str, stderr: str) -> None:
+        self.exit_code = exit_code
+        self.stdout = stdout
+        self.stderr = stderr
+        message = f"Command failed with exit code {exit_code}"
+        if stderr.strip():
+            message += f": {stderr.strip()}"
+        super().__init__(message)
+
+
 _STATUS_MAP: dict[int, Callable[[str, str | None], ApiError]] = {
     400: BadRequestError,
     401: AuthError,

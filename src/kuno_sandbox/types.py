@@ -60,6 +60,10 @@ class CreateSandboxRequest(BaseModel):
     memory_mb: int | None = None
     env: dict[str, str] | None = None
     workdir: str | None = None
+    volumes: list[str] | None = None
+    ports: list[str] | None = None
+    shell: str | None = None
+    scripts: dict[str, str] | None = None
 
 
 class SandboxInfo(BaseModel):

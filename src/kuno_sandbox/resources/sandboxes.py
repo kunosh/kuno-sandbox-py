@@ -10,6 +10,16 @@ from ..types import CreateSandboxRequest, SandboxInfo, SandboxState
 if TYPE_CHECKING:
     from ..models.sandbox import Sandbox
 
+# ---------------------------------------------------------------------------
+# Preset images for common sandbox environments
+# ---------------------------------------------------------------------------
+
+PRESET_IMAGES: dict[str, str] = {
+    "python": "python:3.12-slim",
+    "node": "node:22-slim",
+    "ubuntu": "ubuntu:24.04",
+}
+
 
 class SandboxResource:
     """Create, list, get, and destroy sandboxes."""
@@ -26,6 +36,10 @@ class SandboxResource:
         memory_mb: int | None = None,
         env: dict[str, str] | None = None,
         workdir: str | None = None,
+        volumes: list[str] | None = None,
+        ports: list[str] | None = None,
+        shell: str | None = None,
+        scripts: dict[str, str] | None = None,
     ) -> Sandbox:
         from ..models.sandbox import Sandbox
 
@@ -36,6 +50,10 @@ class SandboxResource:
             memory_mb=memory_mb,
             env=env,
             workdir=workdir,
+            volumes=volumes,
+            ports=ports,
+            shell=shell,
+            scripts=scripts,
         )
         data = await self._http.request(
             "POST",
@@ -44,6 +62,18 @@ class SandboxResource:
         )
         info = SandboxInfo.model_validate(data)
         return Sandbox(info=info, http=self._http)
+
+    async def python(self, **kwargs: object) -> Sandbox:
+        """Create a sandbox with ``python:3.12-slim``."""
+        return await self.create(PRESET_IMAGES["python"], **kwargs)  # type: ignore[arg-type]
+
+    async def node(self, **kwargs: object) -> Sandbox:
+        """Create a sandbox with ``node:22-slim``."""
+        return await self.create(PRESET_IMAGES["node"], **kwargs)  # type: ignore[arg-type]
+
+    async def ubuntu(self, **kwargs: object) -> Sandbox:
+        """Create a sandbox with ``ubuntu:24.04``."""
+        return await self.create(PRESET_IMAGES["ubuntu"], **kwargs)  # type: ignore[arg-type]
 
     async def list(self, state: SandboxState | None = None) -> list[SandboxInfo]:
         params: dict[str, str] = {}

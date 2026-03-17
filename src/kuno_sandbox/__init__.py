@@ -6,6 +6,7 @@ from .errors import (
     AuthError,
     BadRequestError,
     ConflictError,
+    ExecError,
     GoneError,
     KunoError,
     NetworkError,
@@ -17,6 +18,8 @@ from .errors import (
 )
 from .models.agent_session import AgentSession
 from .models.sandbox import Sandbox
+from .resources.sandboxes import PRESET_IMAGES
+from .sync import SyncAgentSession, SyncKunoClient, SyncSandbox
 from .types import (
     AgentConfig,
     AgentKind,
@@ -53,14 +56,18 @@ from .types import (
 __all__ = [
     # Client
     "KunoClient",
+    "SyncKunoClient",
     # Models
     "AgentSession",
     "Sandbox",
+    "SyncAgentSession",
+    "SyncSandbox",
     # Errors
     "ApiError",
     "AuthError",
     "BadRequestError",
     "ConflictError",
+    "ExecError",
     "GoneError",
     "KunoError",
     "NetworkError",
@@ -69,6 +76,8 @@ __all__ = [
     "ServerError",
     "StreamError",
     "TimeoutError",
+    # Constants
+    "PRESET_IMAGES",
     # Enums
     "AgentKind",
     "FileOperation",
